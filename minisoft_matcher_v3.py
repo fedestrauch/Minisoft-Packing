@@ -18,6 +18,7 @@ Matching is done only against Box-style source kits (custrecord5 IS NULL).
 
 import json
 import math
+import os
 import statistics
 import pandas as pd
 from collections import Counter, defaultdict
@@ -25,27 +26,62 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
 # ── File paths ───────────────────────────────────────────────────────────────
-FILE_WITH_MINISOFT = r'C:\Users\info\.claude\projects\C--Users-info-Documents-Dev\3f12f581-6d4a-46d6-b111-1b5443647750\tool-results\mcp-claude_ai_NetSuite-ns_runCustomSuiteQL-1772732565024.txt'
-FILE_ALL_MEMBERS   = r'C:\Users\info\.claude\projects\C--Users-info-Documents-Dev\3f12f581-6d4a-46d6-b111-1b5443647750\tool-results\mcp-claude_ai_NetSuite-ns_runCustomSuiteQL-1772731442868.txt'
-FILE_NO_MINISOFT   = r'C:\Users\info\.claude\projects\C--Users-info-Documents-Dev\3f12f581-6d4a-46d6-b111-1b5443647750\tool-results\mcp-claude_ai_NetSuite-ns_runCustomSuiteQL-1772726771163.txt'
-FILE_CROSS_REF     = r'C:\Users\info\.claude\projects\C--Users-info-Documents-Dev\3f12f581-6d4a-46d6-b111-1b5443647750\tool-results\mcp-claude_ai_NetSuite-ns_runCustomSuiteQL-1772731819042.txt'
-OUTPUT_FILE        = r'C:\Users\info\Documents\Dev\Output\Minisoft_Match_v3.xlsx'
+FILE_WITH_MINISOFT = r'C:\Users\info\Documents\Dev\data\minisoft\with_minisoft.json'
+FILE_ALL_MEMBERS   = r'C:\Users\info\Documents\Dev\data\minisoft\all_members.json'
+FILE_NO_MINISOFT   = r'C:\Users\info\Documents\Dev\data\minisoft\no_minisoft.json'
+FILE_CROSS_REF     = r'C:\Users\info\Documents\Dev\data\minisoft\cross_ref.json'
+FILE_COMP_DESC     = r'C:\Users\info\Documents\Dev\data\minisoft\comp_descriptions.json'
+OUTPUT_FILE        = os.environ.get(
+    'MINISOFT_OUTPUT_FILE',
+    r'C:\Users\info\Documents\Dev\Output\Minisoft_Match_v3.xlsx'
+)
 
 EXCLUDED_MATCH_KIT_NAMES = {'SC AMA KIT_OIL NEW'}
 
-# Component role keywords — order matters: skip checked first, then table before chair
+# ── Component role keywords (name-based fallback) ─────────────────────────────
+# Order matters: skip checked first, then table before chair.
+# BT prefix removed from TABLE_KW — many BT items are chairs (use description instead).
 _SKIP_KW  = ('MAINTKIT', 'KIT_OIL', 'CUSHION', 'COVER', 'PARASOL', 'UMBRELLA')
-_TABLE_KW = ('BT ', 'PLI ', 'SC ALAMA', 'SC CHAMONIX_RECT', 'SC CANNES_160',
+_TABLE_KW = ('PLI ', 'SC ALAMA', 'SC CHAMONIX_RECT', 'SC CANNES_160',
              'SC CANNES_TABLE', 'SC DIAN', 'SC LEYLAND', '_RECT', ' TABLE',
-             'GC_ATL', 'IN_CTECHA')   # GC_ATL = cocktail accent; CTECHA = tech tables
-_CHAIR_KW = ('SIDE', 'BUCKET', 'SOFA', 'CHAIR', 'CHAISE', 'BARIARMC', 'BARI_ARM',
+             'GC_ATL', 'IN_CTECHA', 'BT 5', 'BT 3', 'BT 4', 'BT 2')  # BT numeric = table
+_CHAIR_KW = ('SIDE', 'BUCKET', 'CHAIR', 'CHAISE', 'BARIARMC', 'BARI_ARM',
              'CANNES_LOT', 'CANNES_SIDE', 'CANNES_BUCKET')
+_SOFA_KW  = ('SOFA', '2SEATER', '3SEATER', '2 SEATER', '3 SEATER')
+_SECT_KW  = ('OTTOMAN', 'LOUNGER', 'CHAISE_LONG', 'SECTIONAL')
 _LEGS_KW  = ('_LEGS_', ' LEGS ', 'LEGS_')
 _FRAME_KW = ('_FRAME_', ' FRAME_', '_FRAME ')
+
+# Description-based keywords (checked before name keywords when description exists)
+_DESC_SKIP = ('cushion', 'cover', 'parasol', 'umbrella', 'screen', 'chest')
+_DESC_TABLE = ('table', 'bartable', 'bar table', 'counter height')
+_DESC_SECT  = ('sectional', 'loveseat', 'chaise lounge', 'ottoman')
+_DESC_SOFA  = ('sofa', '2-seater', '3-seater', '2 seater', '3 seater')
+_DESC_CHAIR = ('chair', 'barstool', 'bar stool', 'stool', 'deckchair',
+               'deck chair', 'armchair', 'bench')
 
 DEFAULT_CHAIR_CAPACITY = 4   # empirically confirmed: 4 chairs stacked per box
 
 MIN_MATCH_SCORE = 0.40
+
+# ── Component family matching ─────────────────────────────────────────────────
+# Tokens stripped when building a chair's "family key" for fuzzy matching.
+# Color/finish variants of the same model share the same family key.
+import re as _re
+_FAMILY_COLOR   = {'WHT','WH','GRY','GR','GRN','BLK','BK','HOY','PNY','SGN',
+                   'BMB','MGR','OR','DGRY','CSNM','NTP','ZWHT','BEI','T','RCY',
+                   'OW','SG','DGR','NAT','NOK','BN','CRM'}
+_FAMILY_FINISH  = {'LOT','PAR','ALU','FSC','TEA','STL','RSN','LOTS','PARS','ALUS'}
+_FAMILY_SUBMDL  = {'SIDE','ARM','BUCKET','CARVER','DINING','STACKING','FOLDING',
+                   'LOUNGE','BARIARMC','CHAIR','ARMCHAIR'}
+_FAMILY_STRIP   = _FAMILY_COLOR | _FAMILY_FINISH | _FAMILY_SUBMDL
+
+def comp_family(cid: str) -> str:
+    """Return a normalized family key for a component, stripping color/finish/sub-model tokens."""
+    name = comp_name_map.get(cid, str(cid))
+    tokens = _re.split(r'[\s_\-]+', name.strip().upper())
+    kept = [t for t in tokens if t and t not in _FAMILY_STRIP]
+    return '_'.join(kept) if kept else name.upper()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -54,18 +90,66 @@ def load_json(path):
     with open(path, encoding='utf-8') as f:
         raw = f.read()
     outer = json.loads(raw)
-    return json.loads(outer[0]['text'])['data']
+    # Support both MCP tool-result format and plain JSON array
+    if isinstance(outer, list) and outer and isinstance(outer[0], dict) and 'text' in outer[0]:
+        return json.loads(outer[0]['text'])['data']
+    return outer
 
 
 def get_pkg_type(record):
     return 'Pallet' if record.get('num_boxes') is not None else 'Box'
 
 
-def classify_component(name: str) -> str:
-    """Return 'table' | 'chair' | 'legs' | 'frame' | 'skip' | 'other'."""
+def _has_box_payload(record):
+    """True when a Box-style record has usable dimensional/weight payload."""
+    if record.get('num_boxes') is not None:
+        return False
+    return any(record.get(k) is not None for k in ('weight', 'length', 'width', 'height'))
+
+
+def coerce_qty(value):
+    """Normalize quantity values from JSON/API payloads to numeric."""
+    if value is None:
+        return 0
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        v = float(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
+    return int(v) if v.is_integer() else v
+
+
+def classify_component(name: str, desc: str = '') -> str:
+    """Return 'table' | 'chair' | 'sofa' | 'sectional' | 'legs' | 'frame' | 'skip' | 'other'.
+
+    Description (when available) takes priority over item-name keywords.
+    """
     n = name.upper()
+    d = desc.lower() if desc else ''
+
+    # Skip is checked first regardless of source
     if any(k.upper() in n for k in _SKIP_KW):
         return 'skip'
+    if d and any(k in d for k in _DESC_SKIP):
+        return 'skip'
+
+    # Description-based classification (more reliable)
+    if d:
+        if any(k in d for k in _DESC_SECT):
+            return 'sectional'
+        if any(k in d for k in _DESC_SOFA):
+            return 'sofa'
+        if any(k in d for k in _DESC_CHAIR):
+            return 'chair'
+        if any(k in d for k in _DESC_TABLE):
+            return 'table'
+
+    # Name-based fallback
+    if any(k.upper() in n for k in _SECT_KW):
+        return 'sectional'
+    if any(k.upper() in n for k in _SOFA_KW):
+        return 'sofa'
     if any(k.upper() in n for k in _TABLE_KW):
         return 'table'
     if any(k.upper() in n for k in _CHAIR_KW):
@@ -75,6 +159,13 @@ def classify_component(name: str) -> str:
     if any(k.upper() in n for k in _FRAME_KW):
         return 'frame'
     return 'other'
+
+
+def classify_cid(cid: str) -> str:
+    """Classify a component by ID, using description when available."""
+    name = comp_name_map.get(cid, str(cid))
+    desc = comp_desc_map.get(str(cid), '')
+    return classify_component(name, desc)
 
 
 def to_qty_dict(qty_set):
@@ -87,10 +178,16 @@ def is_excluded_source_kit(kit_id):
 
 def get_kit_pack_type(kit_id):
     recs = minisoft_by_kit.get(kit_id, [])
-    if any(r.get('num_boxes') is None for r in recs):
+    has_pallet = any(r.get('num_boxes') is not None for r in recs)
+    has_box_payload = any(_has_box_payload(r) for r in recs)
+
+    # Prefer pallet when box records are placeholders with no usable payload.
+    if has_box_payload and not has_pallet:
         return 'Box'
-    if any(r.get('num_boxes') is not None for r in recs):
+    if has_pallet and not has_box_payload:
         return 'Pallet'
+    if has_box_payload and has_pallet:
+        return 'Box'
     return None
 
 
@@ -100,6 +197,11 @@ rows_with    = load_json(FILE_WITH_MINISOFT)
 rows_all     = load_json(FILE_ALL_MEMBERS)
 rows_missing = load_json(FILE_NO_MINISOFT)
 rows_xref    = load_json(FILE_CROSS_REF)
+
+# Component descriptions {item_id_str: {itemid, description}}
+with open(FILE_COMP_DESC, encoding='utf-8') as _f:
+    _comp_desc_raw = json.load(_f)
+comp_desc_map = {cid: v.get('description', '') for cid, v in _comp_desc_raw.items()}
 
 xref_kit_ids = {r['item_id'] for r in rows_xref}
 print(f"Cross-referenced kits: {len(xref_kit_ids)}")
@@ -122,7 +224,7 @@ comp_name_map        = {}
 for row in rows_all:
     pid = row['parentitem']
     cid = row['component_item']
-    qty = row['quantity']
+    qty = coerce_qty(row['quantity'])
     kit_components_ids[pid].add(cid)
     kit_components_qty[pid].add((cid, qty))
     kit_name_map[pid] = row['kit_name']
@@ -150,7 +252,7 @@ for row in rows_with:
     pid = row['parentitem']
     mid = row['minisoft_id']
     cid = row['component_item']
-    qty = row['quantity']
+    qty = coerce_qty(row['quantity'])
     kit_with_minisoft_ids[pid].add(cid)
     kit_with_minisoft_qty[pid].add((cid, qty))
     kit_name_map[pid] = row['kit_name']
@@ -197,7 +299,7 @@ def build_component_box_library():
         comps = kit_with_minisoft_qty.get(kit_id, frozenset())
         non_skip = [
             (cid, int(qty)) for cid, qty in comps
-            if classify_component(comp_name_map.get(cid, '')) != 'skip'
+            if classify_cid(cid) != 'skip'
         ]
         if len(non_skip) == 1 and non_skip[0][1] == 1:
             comp_id = non_skip[0][0]
@@ -228,10 +330,13 @@ def build_chair_spec_library():
         if not box_recs:
             continue
         comps = kit_with_minisoft_qty.get(kit_id, frozenset())
-        roles = {cid: classify_component(comp_name_map.get(cid, '')) for cid, _ in comps}
+        roles = {cid: classify_cid(cid) for cid, _ in comps}
 
-        # Skip kits that contain any table
-        if any(r == 'table' for r in roles.values()):
+        # Pure-chair source only: ignore skip items, then require all remaining roles to be chair.
+        non_skip_roles = [r for r in roles.values() if r != 'skip']
+        if not non_skip_roles:
+            continue
+        if any(r != 'chair' for r in non_skip_roles):
             continue
 
         # Must have exactly one chair component type
@@ -309,19 +414,39 @@ def infer_boxes_from_components(target_kit_id):
     unresolved = []
 
     # Sort by role priority: tables first, then chairs, then legs/frames
-    role_order = {'table': 0, 'chair': 1, 'legs': 2, 'frame': 3, 'other': 4, 'skip': 5}
+    role_order = {'table': 0, 'chair': 1, 'sofa': 2, 'sectional': 3, 'legs': 4, 'frame': 5, 'other': 6, 'skip': 7}
     sorted_comps = sorted(
         comps,
-        key=lambda x: (role_order.get(classify_component(comp_name_map.get(x[0], '')), 9),
+        key=lambda x: (role_order.get(classify_cid(x[0]), 9),
                        comp_name_map.get(x[0], ''))
     )
 
     for comp_id, qty in sorted_comps:
         qty = int(qty)
         name = comp_name_map.get(comp_id, str(comp_id))
-        role = classify_component(name)
+        role = classify_cid(comp_id)
 
         if role == 'skip':
+            continue
+
+        if role in ('sofa', 'sectional'):
+            # Sofas/sectionals each ship individually — use standalone spec per unit
+            spec = component_box_library.get(comp_id)
+            if spec is None:
+                unresolved.append(f'{name} ({role}, no standalone spec)')
+                continue
+            for _ in range(qty):
+                for b in spec:
+                    output_boxes.append({
+                        'pkg_number'     : box_num,
+                        'weight'         : b.get('weight'),
+                        'length'         : b.get('length'),
+                        'width'          : b.get('width'),
+                        'height'         : b.get('height'),
+                        'source_component': name,
+                        'source_type'    : f'component:{role}',
+                    })
+                    box_num += 1
             continue
 
         if role == 'table':
@@ -437,6 +562,20 @@ for kid in kits_with_minisoft:
         peer_index[ids_key].append(kid)
 print(f"Peer groups: {len(peer_index)}")
 
+# Indexes for seating match narrowing.
+# 1) seating_component_id -> source kits (exact component match)
+# 2) seating_family_key   -> source kits (family fallback)
+_SEATING_ROLES = {'chair', 'sofa', 'sectional'}
+chair_to_source_kits = defaultdict(set)
+family_to_source_kits = defaultdict(set)
+for kid in kits_with_minisoft:
+    if is_excluded_source_kit(kid):
+        continue
+    for cid in kit_with_minisoft_ids.get(kid, frozenset()):
+        if classify_cid(cid) in _SEATING_ROLES:
+            chair_to_source_kits[cid].add(kid)
+            family_to_source_kits[comp_family(cid)].add(kid)
+
 
 def similarity_score(target_dict, source_dict):
     shared = set(target_dict) & set(source_dict)
@@ -444,20 +583,28 @@ def similarity_score(target_dict, source_dict):
         return 0.0
     target_recall    = len(shared) / len(target_dict)
     source_precision = len(shared) / len(source_dict)
-    qty_sims = [min(target_dict[i], source_dict[i]) / max(target_dict[i], source_dict[i])
-                for i in shared]
-    return target_recall * 0.45 + source_precision * 0.25 + sum(qty_sims) / len(qty_sims) * 0.30
+    qty_sims = []
+    for i in shared:
+        t = coerce_qty(target_dict[i])
+        s = coerce_qty(source_dict[i])
+        denom = max(t, s)
+        if denom > 0:
+            qty_sims.append(min(t, s) / denom)
+    qty_component = (sum(qty_sims) / len(qty_sims)) if qty_sims else 0.0
+    return target_recall * 0.45 + source_precision * 0.25 + qty_component * 0.30
 
 
 def get_kit_totals(kit_id):
     recs        = minisoft_by_kit.get(kit_id, [])
-    box_recs    = [r for r in recs if r['num_boxes'] is None]
+    box_recs    = [r for r in recs if _has_box_payload(r)]
     pallet_recs = [r for r in recs if r['num_boxes'] is not None]
     if box_recs:
         return (sum(float(r['weight']) for r in box_recs if r['weight'] is not None),
                 len(box_recs))
-    return (sum(float(r['weight']) for r in pallet_recs if r['weight'] is not None),
-            sum(int(r['num_boxes']) for r in pallet_recs))
+    if pallet_recs:
+        return (sum(float(r['weight']) for r in pallet_recs if r['weight'] is not None),
+                sum(int(r['num_boxes']) for r in pallet_recs))
+    return (0, 0)
 
 
 def linear_predict(x_vals, y_vals, x_target):
@@ -480,6 +627,34 @@ def _pkg_sort_key(record):
         return (float(pkg) if pkg is not None else float('inf'), record.get('minisoft_id', 0))
     except (TypeError, ValueError):
         return (float('inf'), record.get('minisoft_id', 0))
+
+
+def _filter_chair_box_outliers(records):
+    """
+    Remove obvious non-chair outlier boxes (e.g., tiny accessory boxes) from a
+    table+chair source kit before chair-box scaling.
+    """
+    parsed = []
+    for r in records:
+        try:
+            l = float(r.get('length') or 0)
+            w = float(r.get('width') or 0)
+            h = float(r.get('height') or 0)
+        except (TypeError, ValueError):
+            continue
+        if l > 0 and w > 0 and h > 0:
+            parsed.append((r, l, w, h))
+
+    if len(parsed) < 3:
+        return records
+
+    med_fp = statistics.median(l * w for _, l, w, _ in parsed)
+    med_h  = statistics.median(h for _, _, _, h in parsed)
+    kept = [
+        r for r, l, w, h in parsed
+        if (l * w) >= (0.5 * med_fp) and h >= (0.5 * med_h)
+    ]
+    return kept if kept else records
 
 
 def identify_table_box(matched_id):
@@ -508,7 +683,7 @@ def identify_table_box(matched_id):
     # Check if any source components are tables
     source_comps = kit_with_minisoft_qty.get(matched_id, frozenset())
     has_table = any(
-        classify_component(comp_name_map.get(cid, '')) == 'table'
+        classify_cid(cid) == 'table'
         for cid, _ in source_comps
     )
     if not has_table:
@@ -562,15 +737,15 @@ def infer_packing(target_kit_id, matched_kit_id):
         if matched_x == 0 or target_x == 0:
             return None
         var_name = comp_name_map.get(variable_item, str(variable_item))
-        var_role = classify_component(var_name)
+        var_role = classify_cid(variable_item)
 
         # Check if both kits have a table component
         target_has_table  = any(
-            classify_component(comp_name_map.get(cid, '')) == 'table'
+            classify_cid(cid) == 'table'
             for cid in target_dict
         )
         matched_has_table = any(
-            classify_component(comp_name_map.get(cid, '')) == 'table'
+            classify_cid(cid) == 'table'
             for cid in matched_dict
         )
 
@@ -578,7 +753,8 @@ def infer_packing(target_kit_id, matched_kit_id):
             # Component-aware: fix the table box, scale only the chair boxes
             table_idx, box_recs = identify_table_box(matched_id=matched_kit_id)
             if table_idx is not None and len(box_recs) > 1:
-                chair_boxes_source = [r for i, r in enumerate(box_recs) if i != table_idx]
+                chair_boxes_all = [r for i, r in enumerate(box_recs) if i != table_idx]
+                chair_boxes_source = _filter_chair_box_outliers(chair_boxes_all)
                 matched_chair_boxes = len(chair_boxes_source)
                 chair_weight_source = sum(
                     float(r['weight']) for r in chair_boxes_source if r.get('weight') is not None
@@ -588,11 +764,14 @@ def infer_packing(target_kit_id, matched_kit_id):
                 pred_chair_weight = chair_weight_source * ratio
                 inferred_boxes    = 1 + max(1, math.ceil(pred_chair_boxes))  # +1 for table
                 inferred_weight   = float(box_recs[table_idx].get('weight') or 0) + pred_chair_weight
+                dropped = len(chair_boxes_all) - len(chair_boxes_source)
                 notes = (
                     f'Component-aware: table box fixed (pkg #{box_recs[table_idx]["pkg_number"]}), '
                     f'"{var_name}": {matched_x:.0f}→{target_x:.0f} units, '
                     f'{matched_chair_boxes:.0f}→{pred_chair_boxes:.1f} chair boxes'
                 )
+                if dropped > 0:
+                    notes += f', excluded {dropped} outlier box(es)'
                 return {
                     'inferred_weight': round(inferred_weight, 1) if inferred_weight > 0 else None,
                     'inferred_boxes' : inferred_boxes,
@@ -717,6 +896,20 @@ def select_output_records(matched_id, packing_basis, inferred_boxes, match_type)
                         used_ids.add(r.get('minisoft_id'))
                         if len(chosen) >= target_boxes:
                             break
+                if len(chosen) < target_boxes:
+                    # Expand with repeated chair-box templates when source has fewer
+                    # rows than predicted target boxes.
+                    table_idx, box_recs = identify_table_box(matched_id)
+                    if table_idx is not None and box_recs:
+                        filler_pool = [r for i, r in enumerate(box_recs) if i != table_idx]
+                    else:
+                        filler_pool = []
+                    if not filler_pool:
+                        filler_pool = list(chosen) if chosen else list(recs)
+                    i = 0
+                    while len(chosen) < target_boxes and filler_pool:
+                        chosen.append(dict(filler_pool[i % len(filler_pool)]))
+                        i += 1
                 recs = chosen[:target_boxes] if chosen else recs[:target_boxes]
             else:
                 recs = recs[:target_boxes]
@@ -746,6 +939,7 @@ def _empty_row(kit_id, kit_name, my_label, match_type):
         'Source Component'   : '',
         'Source Type'        : '',
         'Inferred Boxes'     : '',
+        'Total Inferred Boxes': '',
         'Inferred Weight'    : '',
         'Packing Basis'      : '',
         'Inference Notes'    : '',
@@ -794,9 +988,37 @@ for kit_id in sorted(missing_kit_ids):
         best_score = 1.0
     else:
         # ── Phase 3: Partial similarity match ─────────────────────────────────
+        # If the target has seating components, prioritize exact component overlap.
+        # If no exact overlap exists, fall back to seating family overlap.
+        target_seating_ids = frozenset(
+            cid for cid in my_ids
+            if classify_cid(cid) in _SEATING_ROLES
+        )
+        if target_seating_ids:
+            allowed_sources = frozenset(
+                kid for cid in target_seating_ids
+                for kid in chair_to_source_kits.get(cid, set())
+            )
+            if not allowed_sources:
+                target_seating_families = frozenset(comp_family(cid) for cid in target_seating_ids)
+                allowed_sources = frozenset(
+                    kid for fam in target_seating_families
+                    for kid in family_to_source_kits.get(fam, set())
+                )
+            if not allowed_sources:
+                allowed_sources = None  # no seating candidates found; avoid false "No match"
+        else:
+            allowed_sources = None  # no restriction
+        target_has_table = any(classify_cid(cid) == 'table' for cid in my_ids)
+        target_has_seating = bool(target_seating_ids)
+
         best_score = 0.0
         matched_id = None
         for kid, src_dict in source_qty_dicts.items():
+            if allowed_sources is not None and kid not in allowed_sources:
+                continue
+            if target_has_table and target_has_seating and get_kit_pack_type(kid) != 'Box':
+                continue
             score = similarity_score(my_dict, src_dict)
             if score > best_score:
                 best_score = score
@@ -822,21 +1044,44 @@ for kit_id in sorted(missing_kit_ids):
         source_label   = comp_label(matched_id)
         score_pct      = f'{best_score:.0%}'
         output_records = select_output_records(matched_id, packing_basis, inferred_boxes, match_type)
-        for ms in output_records:
+
+        # Keep "Inferred Boxes" consistent with listed rows for partial Box outputs.
+        if packing_basis == 'Box' and str(match_type).startswith('Partial'):
+            try:
+                predicted_boxes = int(inferred_boxes)
+            except (TypeError, ValueError):
+                predicted_boxes = None
+            if predicted_boxes and output_records and len(output_records) < predicted_boxes:
+                inference_notes = (
+                    f'{inference_notes} | '
+                    f'Output capped to {len(output_records)} listed source box rows '
+                    f'(predicted {predicted_boxes}).'
+                ).strip()
+                inferred_boxes = len(output_records)
+
+        for idx, ms in enumerate(output_records, start=1):
             row = _empty_row(kit_id, kit_name, my_label, match_type)
             row['Match Score']        = score_pct
             row['Matched Kit ID']     = matched_id
             row['Matched Kit Name']   = matched_name
             row['Source Components']  = source_label
             row['Date Created']       = ms['created']
-            row['Package Number']     = ms['pkg_number']
+            if packing_basis == 'Box' and str(match_type).startswith('Partial'):
+                row['Package Number'] = idx
+            else:
+                row['Package Number'] = ms['pkg_number']
             row['Package Type']       = get_pkg_type(ms)
             row['Num Boxes in Pallet']= ms['num_boxes']
             row['Weight']             = ms['weight']
             row['Length']             = ms['length']
             row['Width']              = ms['width']
             row['Height']             = ms['height']
-            row['Inferred Boxes']     = inferred_boxes
+            if packing_basis == 'Box' and str(match_type).startswith('Partial'):
+                row['Inferred Boxes'] = idx
+                row['Total Inferred Boxes'] = inferred_boxes
+            else:
+                row['Inferred Boxes'] = inferred_boxes
+                row['Total Inferred Boxes'] = inferred_boxes
             row['Inferred Weight']    = inferred_weight
             row['Packing Basis']      = packing_basis
             row['Inference Notes']    = inference_notes
