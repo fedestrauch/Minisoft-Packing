@@ -20,21 +20,41 @@ import json
 import math
 import os
 import statistics
+import argparse
 import pandas as pd
 from collections import Counter, defaultdict
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
 # ── File paths ───────────────────────────────────────────────────────────────
-FILE_WITH_MINISOFT = r'C:\Users\info\Documents\Dev\data\minisoft\with_minisoft.json'
-FILE_ALL_MEMBERS   = r'C:\Users\info\Documents\Dev\data\minisoft\all_members.json'
-FILE_NO_MINISOFT   = r'C:\Users\info\Documents\Dev\data\minisoft\no_minisoft.json'
-FILE_CROSS_REF     = r'C:\Users\info\Documents\Dev\data\minisoft\cross_ref.json'
-FILE_COMP_DESC     = r'C:\Users\info\Documents\Dev\data\minisoft\comp_descriptions.json'
-OUTPUT_FILE        = os.environ.get(
-    'MINISOFT_OUTPUT_FILE',
-    r'C:\Users\info\Documents\Dev\Output\Minisoft_Match_v3.xlsx'
-)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_DATA_DIR = os.path.abspath(os.environ.get('MINISOFT_DATA_DIR', SCRIPT_DIR))
+
+
+def _default_input_path(filename):
+    return os.path.join(DEFAULT_DATA_DIR, filename)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description='Infer Minisoft packing matches from local JSON exports.'
+    )
+    parser.add_argument('--with-minisoft', default=os.environ.get('MINISOFT_WITH_FILE', _default_input_path('with_minisoft.json')))
+    parser.add_argument('--all-members', default=os.environ.get('MINISOFT_ALL_MEMBERS_FILE', _default_input_path('all_members.json')))
+    parser.add_argument('--no-minisoft', default=os.environ.get('MINISOFT_NO_MINISOFT_FILE', _default_input_path('no_minisoft.json')))
+    parser.add_argument('--cross-ref', default=os.environ.get('MINISOFT_CROSS_REF_FILE', _default_input_path('cross_ref.json')))
+    parser.add_argument('--comp-desc', default=os.environ.get('MINISOFT_COMP_DESC_FILE', _default_input_path('comp_descriptions.json')))
+    parser.add_argument('--output', default=os.environ.get('MINISOFT_OUTPUT_FILE', os.path.join(SCRIPT_DIR, 'Minisoft_Match_v3.xlsx')))
+    return parser.parse_args()
+
+
+ARGS = parse_args()
+FILE_WITH_MINISOFT = ARGS.with_minisoft
+FILE_ALL_MEMBERS = ARGS.all_members
+FILE_NO_MINISOFT = ARGS.no_minisoft
+FILE_CROSS_REF = ARGS.cross_ref
+FILE_COMP_DESC = ARGS.comp_desc
+OUTPUT_FILE = ARGS.output
 
 EXCLUDED_MATCH_KIT_NAMES = {'SC AMA KIT_OIL NEW'}
 
@@ -134,18 +154,28 @@ def classify_component(name: str, desc: str = '') -> str:
     if d and any(k in d for k in _DESC_SKIP):
         return 'skip'
 
+    # SKU-name intent override: explicit chair tokens in item name are usually reliable,
+    # even when description text is noisy/misaligned.
+    name_has_table = ('TABLE' in n) or any(k.upper() in n for k in _TABLE_KW)
+    name_has_chair = any(k.upper() in n for k in _CHAIR_KW)
+    if name_has_chair and not name_has_table:
+        return 'chair'
+
     # Description-based classification (more reliable)
     if d:
+        # Prioritize table when text includes both "sofa" and "table" (e.g., "sofa table").
+        if any(k in d for k in _DESC_TABLE):
+            return 'table'
         if any(k in d for k in _DESC_SECT):
             return 'sectional'
         if any(k in d for k in _DESC_SOFA):
             return 'sofa'
         if any(k in d for k in _DESC_CHAIR):
             return 'chair'
-        if any(k in d for k in _DESC_TABLE):
-            return 'table'
 
     # Name-based fallback
+    if 'TABLE' in n:
+        return 'table'
     if any(k.upper() in n for k in _SECT_KW):
         return 'sectional'
     if any(k.upper() in n for k in _SOFA_KW):
@@ -193,6 +223,22 @@ def get_kit_pack_type(kit_id):
 
 # ── Load raw data ─────────────────────────────────────────────────────────────
 print("Loading data...")
+required_inputs = [
+    FILE_WITH_MINISOFT,
+    FILE_ALL_MEMBERS,
+    FILE_NO_MINISOFT,
+    FILE_CROSS_REF,
+    FILE_COMP_DESC,
+]
+missing_inputs = [p for p in required_inputs if not os.path.exists(p)]
+if missing_inputs:
+    missing_str = '\n'.join(f'- {os.path.abspath(p)}' for p in missing_inputs)
+    raise FileNotFoundError(
+        f"Missing required input file(s):\n{missing_str}\n"
+        "Provide paths via CLI flags (--with-minisoft, --all-members, --no-minisoft, "
+        "--cross-ref, --comp-desc) or MINISOFT_* environment variables."
+    )
+
 rows_with    = load_json(FILE_WITH_MINISOFT)
 rows_all     = load_json(FILE_ALL_MEMBERS)
 rows_missing = load_json(FILE_NO_MINISOFT)
@@ -594,6 +640,43 @@ def similarity_score(target_dict, source_dict):
     return target_recall * 0.45 + source_precision * 0.25 + qty_component * 0.30
 
 
+def _weighted_shared_ratio(target_dict, matched_dict, roles=None):
+    """
+    Compute target/matched ratio across shared components, weighted by matched qty.
+    Optionally restrict to specific component roles.
+    Returns (ratio, dominant_component_id, component_count) or (None, None, 0).
+    """
+    pairs = []
+    for cid in (set(target_dict) & set(matched_dict)):
+        role = classify_cid(cid)
+        # Skip/accessory components should not drive box-count scaling.
+        if role == 'skip':
+            continue
+        if roles and role not in roles:
+            continue
+        # Protect seating ratios from false positives in descriptions (e.g. leg/frame items
+        # whose text contains "chair").
+        if roles and roles == {'chair', 'sofa', 'sectional'}:
+            name_u = comp_name_map.get(cid, str(cid)).upper()
+            if any(k.upper() in name_u for k in _LEGS_KW) or any(k.upper() in name_u for k in _FRAME_KW):
+                continue
+        t = coerce_qty(target_dict.get(cid))
+        m = coerce_qty(matched_dict.get(cid))
+        if t <= 0 or m <= 0:
+            continue
+        pairs.append((cid, t, m))
+
+    if not pairs:
+        return None, None, 0
+
+    total_matched = sum(m for _, _, m in pairs)
+    if total_matched <= 0:
+        return None, None, 0
+    ratio = sum((t / m) * m for _, t, m in pairs) / total_matched
+    dominant_cid = max(pairs, key=lambda x: x[2])[0]
+    return ratio, dominant_cid, len(pairs)
+
+
 def get_kit_totals(kit_id):
     recs        = minisoft_by_kit.get(kit_id, [])
     box_recs    = [r for r in recs if _has_box_payload(r)]
@@ -716,28 +799,9 @@ def infer_packing(target_kit_id, matched_kit_id):
         if matched_boxes <= 0:
             return None
 
-        # Determine variable (chair) component
-        variable_item = None
-        max_diff = 0
-        for item in target_dict:
-            if item in matched_dict:
-                diff = abs(target_dict[item] - matched_dict[item])
-                if diff > max_diff:
-                    max_diff = diff
-                    variable_item = item
-        if variable_item is None:
-            shared = set(target_dict) & set(matched_dict)
-            if shared:
-                variable_item = max(shared, key=lambda x: target_dict[x])
-            else:
-                return None
-
-        target_x  = target_dict[variable_item]
-        matched_x = matched_dict.get(variable_item, 0)
-        if matched_x == 0 or target_x == 0:
+        shared = set(target_dict) & set(matched_dict)
+        if not shared:
             return None
-        var_name = comp_name_map.get(variable_item, str(variable_item))
-        var_role = classify_cid(variable_item)
 
         # Check if both kits have a table component
         target_has_table  = any(
@@ -748,8 +812,23 @@ def infer_packing(target_kit_id, matched_kit_id):
             classify_cid(cid) == 'table'
             for cid in matched_dict
         )
+        target_table_qty = sum(
+            coerce_qty(target_dict.get(cid))
+            for cid in target_dict
+            if classify_cid(cid) == 'table'
+        )
+        matched_table_qty = sum(
+            coerce_qty(matched_dict.get(cid))
+            for cid in matched_dict
+            if classify_cid(cid) == 'table'
+        )
 
-        if var_role == 'chair' and target_has_table and matched_has_table:
+        seating_ratio, seating_anchor, seating_count = _weighted_shared_ratio(
+            target_dict, matched_dict, roles={'chair', 'sofa', 'sectional'}
+        )
+
+        if (seating_ratio is not None and target_has_table and matched_has_table
+                and target_table_qty == 1 and matched_table_qty == 1):
             # Component-aware: fix the table box, scale only the chair boxes
             table_idx, box_recs = identify_table_box(matched_id=matched_kit_id)
             if table_idx is not None and len(box_recs) > 1:
@@ -759,15 +838,18 @@ def infer_packing(target_kit_id, matched_kit_id):
                 chair_weight_source = sum(
                     float(r['weight']) for r in chair_boxes_source if r.get('weight') is not None
                 )
-                ratio = target_x / matched_x
+                ratio = seating_ratio
                 pred_chair_boxes  = matched_chair_boxes * ratio
                 pred_chair_weight = chair_weight_source * ratio
-                inferred_boxes    = 1 + max(1, math.ceil(pred_chair_boxes))  # +1 for table
+                # Use nearest-box rounding for scaled chair boxes to avoid systematic overestimation.
+                inferred_boxes    = 1 + max(1, math.floor(pred_chair_boxes + 0.5))  # +1 for table
                 inferred_weight   = float(box_recs[table_idx].get('weight') or 0) + pred_chair_weight
                 dropped = len(chair_boxes_all) - len(chair_boxes_source)
+                anchor_name = comp_name_map.get(seating_anchor, str(seating_anchor)) if seating_anchor else 'seating'
                 notes = (
                     f'Component-aware: table box fixed (pkg #{box_recs[table_idx]["pkg_number"]}), '
-                    f'"{var_name}": {matched_x:.0f}→{target_x:.0f} units, '
+                    f'seating ratio={ratio:.2f} from {seating_count} shared component(s) '
+                    f'(anchor: "{anchor_name}"), '
                     f'{matched_chair_boxes:.0f}→{pred_chair_boxes:.1f} chair boxes'
                 )
                 if dropped > 0:
@@ -779,13 +861,15 @@ def infer_packing(target_kit_id, matched_kit_id):
                 }
 
         # Fallback: pure proportional scaling for Box-style
-        ratio = target_x / matched_x
+        ratio, anchor_cid, shared_count = _weighted_shared_ratio(target_dict, matched_dict)
+        if ratio is None:
+            return None
+        anchor_name = comp_name_map.get(anchor_cid, str(anchor_cid)) if anchor_cid else 'shared components'
         pred_boxes  = matched_boxes * ratio
         pred_weight = matched_weight * ratio if matched_weight > 0 else 0
-        per_unit = matched_x / matched_boxes if matched_boxes > 0 else 0
         notes = (
-            f'Box proportional: "{var_name}" — {matched_x:.0f} units in {matched_boxes:.0f} boxes '
-            f'({per_unit:.1f}/box) → {target_x} units = {pred_boxes:.1f} boxes'
+            f'Box proportional (weighted): ratio={ratio:.2f} from {shared_count} shared component(s) '
+            f'(anchor: "{anchor_name}") → {pred_boxes:.1f} boxes from {matched_boxes:.0f}'
         )
         return {
             'inferred_weight': round(pred_weight, 1) if pred_weight > 0 else None,
@@ -849,7 +933,8 @@ def infer_packing(target_kit_id, matched_kit_id):
 
     return {
         'inferred_weight': round(pred_weight, 1) if pred_weight > 0 else None,
-        'inferred_boxes' : max(0, round(pred_boxes)),
+        # Matched kits should never emit zero inferred boxes.
+        'inferred_boxes' : max(1, round(pred_boxes)),
         'inference_notes': notes,
     }
 
@@ -1098,6 +1183,10 @@ print(match_counts.to_string())
 
 
 # ── Write Excel ───────────────────────────────────────────────────────────────
+output_dir = os.path.dirname(os.path.abspath(OUTPUT_FILE))
+if output_dir:
+    os.makedirs(output_dir, exist_ok=True)
+
 with pd.ExcelWriter(OUTPUT_FILE, engine='openpyxl') as writer:
     summary_df = match_counts.reset_index()
     summary_df.columns = ['Match Type', 'Kit Count']
