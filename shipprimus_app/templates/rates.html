@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Step 2: Select Rate — ShipPrimus{% endblock %}
+
+{% block content %}
+<h2 class="mb-3"><span class="badge bg-primary me-2">Step 2</span> Select Carrier Rate</h2>
+
+{% if rates %}
+<form method="post" action="{{ url_for('rates') }}">
+  <div class="table-responsive mb-4">
+    <table class="table table-hover align-middle shadow-sm">
+      <thead>
+        <tr>
+          <th>Select</th>
+          <th>Carrier</th>
+          <th>SCAC</th>
+          <th>Service</th>
+          <th>Transit</th>
+          <th>Total Rate</th>
+          <th>Breakdown</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rate in rates %}
+        {% set rate_id = rate.id or rate.rateId or loop.index|string %}
+        {% set carrier = rate.name or rate.carrierName or rate.SCAC or 'Unknown' %}
+        {% set scac = rate.SCAC or '' %}
+        {% set service = rate.serviceLevel or rate.serviceType or rate.rateType or 'LTL' %}
+        {% set transit = rate.transitDays or '—' %}
+        {% set total = rate.total or rate.totalRate or 0 %}
+        {% set breakdown = rate.rateBreakdown or [] %}
+        <tr>
+          <td>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="rate_id" value="{{ rate_id }}"
+                     id="rate_{{ loop.index }}" required>
+              <input type="hidden" name="carrier_name_{{ rate_id }}" value="{{ carrier }}">
+              <input type="hidden" name="rate_total_{{ rate_id }}" value="{{ total }}">
+              <input type="hidden" name="carrier_scac_{{ rate_id }}" value="{{ scac }}">
+            </div>
+          </td>
+          <td>
+            {% if rate.iconUrl %}
+            <img src="{{ rate.iconUrl }}" alt="{{ carrier }}" style="max-height:28px;max-width:90px;" class="me-1">
+            {% endif %}
+            <label for="rate_{{ loop.index }}" class="fw-bold mb-0">{{ carrier }}</label>
+          </td>
+          <td><code class="small">{{ scac }}</code></td>
+          <td><span class="badge bg-secondary">{{ service }}</span></td>
+          <td>{{ transit }} days</td>
+          <td class="fw-bold text-success fs-6">${{ "%.2f"|format(total|float) }}</td>
+          <td>
+            {% if breakdown %}
+            <button type="button" class="btn btn-sm btn-outline-info"
+                    data-bs-toggle="modal" data-bs-target="#breakdownModal"
+                    data-carrier="{{ carrier }}"
+                    data-total="{{ total }}"
+                    data-breakdown="{{ breakdown | tojson | e }}">
+              <i class="bi bi-receipt"></i>
+            </button>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Hidden fields populated by JS when a rate row is selected -->
+  <input type="hidden" name="carrier_name" id="selectedCarrierName">
+  <input type="hidden" name="rate_total" id="selectedRateTotal">
+  <input type="hidden" name="carrier_scac" id="selectedCarrierScac">
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-success btn-lg">
+      <i class="bi bi-check-circle"></i> Select Rate &amp; Continue
+    </button>
+    <a href="{{ url_for('quote') }}" class="btn btn-outline-secondary btn-lg">
+      <i class="bi bi-arrow-left"></i> Back
+    </a>
+  </div>
+</form>
+
+<!-- Breakdown Modal -->
+<div class="modal fade" id="breakdownModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title" id="breakdownModalTitle">Rate Breakdown</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <table class="table table-sm mb-0" id="breakdownTable">
+          <tbody></tbody>
+          <tfoot>
+            <tr class="table-dark fw-bold">
+              <td>Total</td>
+              <td id="breakdownTotal" class="text-end"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% else %}
+<div class="alert alert-warning">
+  No rates returned. <a href="{{ url_for('quote') }}">Go back and re-submit.</a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Sync selected carrier name + total to hidden fields
+document.querySelectorAll('input[name="rate_id"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    const rateId = radio.value;
+    const cn = document.querySelector(`input[name="carrier_name_${rateId}"]`);
+    if (cn) document.getElementById('selectedCarrierName').value = cn.value;
+    const rt = document.querySelector(`input[name="rate_total_${rateId}"]`);
+    if (rt) document.getElementById('selectedRateTotal').value = rt.value;
+    const sc = document.querySelector(`input[name="carrier_scac_${rateId}"]`);
+    if (sc) document.getElementById('selectedCarrierScac').value = sc.value;
+  });
+});
+
+// Breakdown modal: populate from data-* attributes
+const breakdownModal = document.getElementById('breakdownModal');
+breakdownModal.addEventListener('show.bs.modal', e => {
+  const btn = e.relatedTarget;
+  document.getElementById('breakdownModalTitle').textContent =
+    btn.dataset.carrier + ' — Rate Breakdown';
+  document.getElementById('breakdownTotal').textContent =
+    '$' + parseFloat(btn.dataset.total).toFixed(2);
+  const rows = JSON.parse(btn.dataset.breakdown || '[]');
+  const tbody = document.querySelector('#breakdownTable tbody');
+  tbody.innerHTML = rows.map(r =>
+    `<tr><td>${r.name}</td><td class="text-end">$${parseFloat(r.total).toFixed(2)}</td></tr>`
+  ).join('');
+});
+</script>
+{% endblock %}

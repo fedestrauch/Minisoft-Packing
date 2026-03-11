@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Booked! — ShipPrimus{% endblock %}
+
+{% block content %}
+<div class="text-center mb-4">
+  <div class="display-1 text-success"><i class="bi bi-check-circle-fill"></i></div>
+  <h2 class="mt-2">Shipment Booked!</h2>
+  <p class="text-muted">BOL created{% if dispatch_confirmation %} and pickup dispatched with carrier{% endif %}.</p>
+</div>
+
+<div class="card shadow mb-4">
+  <div class="card-header bg-success text-white"><i class="bi bi-receipt-cutoff"></i> Booking Summary</div>
+  <div class="card-body">
+    <div class="row gy-3">
+      <div class="col-md-3">
+        <small class="text-muted d-block">BOL / PRO Number</small>
+        <span class="fs-5 fw-bold font-monospace">{{ bol_number }}</span>
+      </div>
+      {% if dispatch_confirmation %}
+      <div class="col-md-3">
+        <small class="text-muted d-block">Dispatch Confirmation #</small>
+        <span class="fs-5 fw-bold font-monospace text-success">{{ dispatch_confirmation }}</span>
+      </div>
+      {% endif %}
+      <div class="col-md-3">
+        <small class="text-muted d-block">Carrier</small>
+        <span class="fw-bold">{{ carrier_name }}</span>
+      </div>
+      <div class="col-md-3">
+        <small class="text-muted d-block">Quote #</small>
+        <span class="fw-bold">{{ quote_number }}</span>
+      </div>
+      <div class="col-md-3">
+        <small class="text-muted d-block">Pickup Date</small>
+        <span class="fw-bold">{{ pickup_date or '—' }}</span>
+      </div>
+      {% if dispatch_bill_to %}
+      <div class="col-md-3">
+        <small class="text-muted d-block">Bill To</small>
+        <span class="fw-bold">{{ dispatch_bill_to }}</span>
+      </div>
+      {% endif %}
+      {% if so_tranid %}
+      <div class="col-md-3">
+        <small class="text-muted d-block">Sales Order</small>
+        <span class="fw-bold">{{ so_tranid }}</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ShipPrimus documents -->
+{% if primus_bol_url or primus_lbl_url %}
+<h5 class="mb-2"><i class="bi bi-file-earmark-pdf"></i> Documents</h5>
+<div class="d-flex flex-wrap gap-3 mb-4">
+  {% if primus_bol_url %}
+  <a href="{{ primus_bol_url }}" class="btn btn-primary btn-lg" target="_blank">
+    <i class="bi bi-file-pdf"></i> Download BOL
+  </a>
+  <a href="{{ primus_bol_url }}" class="btn btn-outline-dark btn-lg" target="_blank">
+    <i class="bi bi-printer"></i> Print BOL
+  </a>
+  {% endif %}
+  {% if primus_lbl_url %}
+  <a href="{{ primus_lbl_url }}" class="btn btn-secondary btn-lg" target="_blank">
+    <i class="bi bi-tag"></i> Download Label
+  </a>
+  <a href="{{ primus_lbl_url }}" class="btn btn-outline-dark btn-lg" target="_blank">
+    <i class="bi bi-printer"></i> Print Label
+  </a>
+  {% endif %}
+</div>
+{% else %}
+<div class="alert alert-warning">
+  <i class="bi bi-exclamation-triangle"></i>
+  Document links not returned by ShipPrimus. Check the ShipPrimus portal for BOL # <strong>{{ bol_number }}</strong>.
+</div>
+{% endif %}
+
+<div class="d-flex gap-2">
+  <a href="{{ url_for('quote') }}" class="btn btn-success">
+    <i class="bi bi-plus-circle"></i> New Shipment
+  </a>
+  <a href="{{ url_for('track') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-search"></i> Track This BOL
+  </a>
+  <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-house"></i> Dashboard
+  </a>
+</div>
+{% endblock %}

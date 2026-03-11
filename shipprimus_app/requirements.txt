@@ -1,0 +1,7 @@
+flask
+flask-session
+requests
+requests-oauthlib
+python-dotenv
+reportlab
+PyPDF2

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Step 3: Book Shipment — ShipPrimus{% endblock %}
+
+{% block content %}
+<h2 class="mb-3"><span class="badge bg-primary me-2">Step 3</span> Book Shipment</h2>
+
+<form method="post">
+  <div class="row g-4 mb-4">
+    <!-- Shipper -->
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header"><i class="bi bi-building"></i> Shipper</div>
+        <div class="card-body">
+          <p class="mb-1"><strong>{{ origin.company or origin.get('company','') }}</strong></p>
+          {% if origin.attn %}<p class="mb-1 text-muted small">Attn: {{ origin.attn }}</p>{% endif %}
+          <p class="mb-1">{{ origin.address }}</p>
+          <p class="mb-1">{{ origin.city }}, {{ origin.state }} {{ origin.zip }}</p>
+          {% if origin.phone %}<p class="mb-0 text-muted small"><i class="bi bi-telephone"></i> {{ origin.phone }}</p>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Consignee -->
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header"><i class="bi bi-geo-alt"></i> Consignee</div>
+        <div class="card-body">
+          <p class="mb-1"><strong>{{ consignee.addressee }}</strong></p>
+          <p class="mb-1">{{ consignee.address1 }}</p>
+          <p class="mb-1">{{ consignee.city }}, {{ consignee.state }} {{ consignee.zip }}</p>
+          {% if consignee.phone %}<p class="mb-0 text-muted small"><i class="bi bi-telephone"></i> {{ consignee.phone }}</p>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quote summary -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><i class="bi bi-receipt"></i> Quote Summary</div>
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-4">
+          <small class="text-muted">Carrier</small>
+          <div class="fw-bold">{{ carrier_name }}</div>
+        </div>
+        <div class="col-md-4">
+          <small class="text-muted">Quote #</small>
+          <div class="fw-bold">{{ quote_number }}</div>
+        </div>
+        <div class="col-md-4">
+          <small class="text-muted">Freight Items</small>
+          <div class="fw-bold">{{ freight_items|length }} line(s)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Accessorials (from quote step) -->
+  {% set acc_labels = {
+    "LFO":"Liftgate Pickup","LFD":"Liftgate Delivery",
+    "RSO":"Residential Pickup","RSD":"Residential Delivery",
+    "INO":"Inside Pickup","IND":"Inside Delivery",
+    "NTD":"Notification / Call Before Delivery"
+  } %}
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><i class="bi bi-plus-circle-dotted"></i> Accessorials</div>
+    <div class="card-body">
+      {% set selected = session.get('accessorials', []) if session else [] %}
+      <div class="row g-2">
+        {% for code, label in acc_labels.items() %}
+        <div class="col-6 col-md-3">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox"
+                   name="accessorials[]" value="{{ code }}"
+                   id="bacc_{{ code }}"
+                   {% if code in (accessorials or []) %}checked{% endif %}>
+            <label class="form-check-label" for="bacc_{{ code }}">{{ label }}</label>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Pickup + notes -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><i class="bi bi-calendar3"></i> Pickup Details</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">Pickup Date <span class="text-danger">*</span></label>
+          <input type="date" name="pickup_date" class="form-control" required value="">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Ready Time <span class="text-danger">*</span></label>
+          <input type="time" name="pickup_time_from" class="form-control" required value="08:00">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Close Time <span class="text-danger">*</span></label>
+          <input type="time" name="pickup_time_to" class="form-control" required value="17:00">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Special Instructions</label>
+          <input name="notes" class="form-control" placeholder="e.g. call before pickup, liftgate required">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-success btn-lg">
+      <i class="bi bi-bookmark-check"></i> Book Shipment
+    </button>
+    <a href="{{ url_for('rates') }}" class="btn btn-outline-secondary btn-lg">
+      <i class="bi bi-arrow-left"></i> Back to Rates
+    </a>
+  </div>
+</form>
+{% endblock %}

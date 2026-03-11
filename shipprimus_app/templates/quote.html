@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}Step 1: Quote — ShipPrimus{% endblock %}
+
+{% block content %}
+<h2 class="mb-3"><span class="badge bg-primary me-2">Step 1</span> Get Rates</h2>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<!-- SO Lookup -->
+<div class="card mb-4 shadow-sm">
+  <div class="card-header bg-dark text-white"><i class="bi bi-search"></i> NetSuite SO Lookup</div>
+  <div class="card-body">
+    <form method="post">
+      <div class="row g-2 align-items-end">
+        <div class="col-auto">
+          <label class="form-label">Sales Order #</label>
+          <input name="so_number" class="form-control" placeholder="e.g. SO12345" value="{{ so_tranid }}">
+        </div>
+        <div class="col-auto">
+          <button name="action" value="lookup" class="btn btn-secondary">
+            <i class="bi bi-cloud-download"></i> Pull from NetSuite
+          </button>
+        </div>
+      </div>
+    </form>
+    {% if so_data %}
+    <div class="alert alert-success mt-3 mb-0">
+      <strong>{{ so_data.tranid }}</strong> — {{ so_data.customer }}<br>
+      <small>{{ so_data.addressee }}, {{ so_data.address1 }}, {{ so_data.city }}, {{ so_data.state }} {{ so_data.zip }}</small>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Quote Form -->
+<form method="post" id="quoteForm">
+  <input type="hidden" name="action" value="get_rates">
+
+  <div class="row g-4 mb-4">
+    <!-- Shipper (readonly) -->
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header"><i class="bi bi-building"></i> Shipper (Origin)</div>
+        <div class="card-body">
+          <p class="mb-1"><strong>{{ shipper.company }}</strong></p>
+          {% if shipper.attn %}<p class="mb-1 text-muted small">Attn: {{ shipper.attn }}</p>{% endif %}
+          <p class="mb-1">{{ shipper.address }}</p>
+          <p class="mb-1">{{ shipper.city }}, {{ shipper.state }} {{ shipper.zip }}</p>
+          {% if shipper.phone %}<p class="mb-0 text-muted small"><i class="bi bi-telephone"></i> {{ shipper.phone }}</p>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Consignee (editable) -->
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header"><i class="bi bi-geo-alt"></i> Consignee (Destination)</div>
+        <div class="card-body">
+          <div class="mb-2">
+            <input name="addressee" class="form-control form-control-sm" placeholder="Company / Name"
+                   value="{{ consignee.addressee or (so_data.addressee if so_data else '') }}">
+          </div>
+          <div class="mb-2">
+            <input name="address1" class="form-control form-control-sm" placeholder="Street Address"
+                   value="{{ consignee.address1 or (so_data.address1 if so_data else '') }}">
+          </div>
+          <div class="row g-1">
+            <div class="col-5">
+              <input name="city" class="form-control form-control-sm" placeholder="City"
+                     value="{{ consignee.city or (so_data.city if so_data else '') }}">
+            </div>
+            <div class="col-2">
+              <input name="state" class="form-control form-control-sm" placeholder="ST"
+                     value="{{ consignee.state or (so_data.state if so_data else '') }}">
+            </div>
+            <div class="col-3">
+              <input name="zip" class="form-control form-control-sm" placeholder="ZIP"
+                     value="{{ consignee.zip or (so_data.zip if so_data else '') }}">
+            </div>
+            <div class="col-2">
+              <input name="country" class="form-control form-control-sm" placeholder="US"
+                     value="{{ consignee.country or (so_data.country if so_data else 'US') }}">
+            </div>
+          </div>
+          <div class="mt-2">
+            <input name="phone" class="form-control form-control-sm" placeholder="Phone"
+                   value="{{ consignee.phone or (so_data.phone if so_data else '') }}">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Freight Lines -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-box-seam"></i> Freight Items</span>
+      <button type="button" class="btn btn-sm btn-outline-primary" id="addRow">
+        <i class="bi bi-plus"></i> Add Row
+      </button>
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-sm mb-0" id="freightTable">
+        <thead>
+          <tr>
+            <th style="width:60px">QTY</th>
+            <th>Description / Commodity</th>
+            <th style="width:90px">Weight (lb)</th>
+            <th style="width:70px">L (in)</th>
+            <th style="width:70px">W (in)</th>
+            <th style="width:70px">H (in)</th>
+            <th style="width:80px">Class</th>
+            <th style="width:40px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in freight_items %}
+          <tr class="freight-row">
+            <td><input name="qty[]" type="number" class="form-control form-control-sm" value="{{ item.qty }}" min="1"></td>
+            <td><input name="description[]" class="form-control form-control-sm" value="{{ item.description }}" placeholder="e.g. Sofa"></td>
+            <td><input name="weight[]" type="number" class="form-control form-control-sm" value="{{ item.weight }}" step="0.1"></td>
+            <td><input name="length[]" type="number" class="form-control form-control-sm" value="{{ item.length }}" step="0.1"></td>
+            <td><input name="width[]" type="number" class="form-control form-control-sm" value="{{ item.width }}" step="0.1"></td>
+            <td><input name="height[]" type="number" class="form-control form-control-sm" value="{{ item.height }}" step="0.1"></td>
+            <td>
+              <select name="freight_class[]" class="form-select form-select-sm">
+                {% for cls in ["50","55","60","65","70","77.5","85","92.5","100","110","125","150","175","200","250","300","400","500"] %}
+                <option value="{{ cls }}" {% if cls == item.freight_class|string %}selected{% endif %}>{{ cls }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td>
+              <button type="button" class="btn btn-sm btn-outline-danger remove-row"><i class="bi bi-x"></i></button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Accessorials -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><i class="bi bi-plus-circle-dotted"></i> Accessorials</div>
+    <div class="card-body">
+      <div class="row g-2">
+        {% set acc_list = [
+          ("LFO", "Liftgate Pickup"),
+          ("LFD", "Liftgate Delivery"),
+          ("RSO", "Residential Pickup"),
+          ("RSD", "Residential Delivery"),
+          ("INO", "Inside Pickup"),
+          ("IND", "Inside Delivery"),
+          ("NTD", "Notification / Call Before Delivery"),
+        ] %}
+        {% for code, label in acc_list %}
+        <div class="col-6 col-md-3">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox"
+                   name="accessorials[]" value="{{ code }}"
+                   id="acc_{{ code }}"
+                   {% if code in (accessorials or []) %}checked{% endif %}>
+            <label class="form-check-label" for="acc_{{ code }}">{{ label }}</label>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary btn-lg">
+      <i class="bi bi-lightning-charge"></i> Get Rates
+    </button>
+    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-lg">Cancel</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const rowTemplate = `<tr class="freight-row">
+  <td><input name="qty[]" type="number" class="form-control form-control-sm" value="1" min="1"></td>
+  <td><input name="description[]" class="form-control form-control-sm" placeholder="e.g. Sofa"></td>
+  <td><input name="weight[]" type="number" class="form-control form-control-sm" value="0" step="0.1"></td>
+  <td><input name="length[]" type="number" class="form-control form-control-sm" value="0" step="0.1"></td>
+  <td><input name="width[]" type="number" class="form-control form-control-sm" value="0" step="0.1"></td>
+  <td><input name="height[]" type="number" class="form-control form-control-sm" value="0" step="0.1"></td>
+  <td><select name="freight_class[]" class="form-select form-select-sm">
+    <option value="70" selected>70</option>
+    <option value="85">85</option><option value="92.5">92.5</option>
+    <option value="100">100</option><option value="125">125</option>
+    <option value="150">150</option><option value="175">175</option>
+    <option value="200">200</option><option value="250">250</option>
+  </select></td>
+  <td><button type="button" class="btn btn-sm btn-outline-danger remove-row"><i class="bi bi-x"></i></button></td>
+</tr>`;
+
+document.getElementById('addRow').addEventListener('click', () => {
+  document.querySelector('#freightTable tbody').insertAdjacentHTML('beforeend', rowTemplate);
+});
+
+document.querySelector('#freightTable tbody').addEventListener('click', e => {
+  const btn = e.target.closest('.remove-row');
+  if (btn) btn.closest('tr').remove();
+});
+</script>
+{% endblock %}

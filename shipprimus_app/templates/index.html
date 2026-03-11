@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — ShipPrimus IHM{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-truck"></i> Freight Dashboard</h2>
+  <a href="{{ url_for('quote') }}" class="btn btn-primary"><i class="bi bi-plus-circle"></i> New Shipment</a>
+</div>
+
+<!-- Workflow steps -->
+<div class="row g-3 mb-4">
+  {% set steps = [
+    ("1", "Quote", "bi-file-text", "quote", "Enter SO # and freight details to get carrier rates."),
+    ("2", "Rates", "bi-list-ol", "rates", "Compare carriers and select the best rate."),
+    ("3", "Book", "bi-calendar-check", "book", "Set pickup date and confirm booking."),
+    ("4", "Confirm", "bi-check-circle", "book", "Book shipment — generates BOL + label for download."),
+  ] %}
+  {% for num, label, icon, endpoint, desc in steps %}
+  <div class="col-sm-6 col-lg-3">
+    <div class="card h-100 shadow-sm">
+      <div class="card-body text-center">
+        <div class="fs-1 text-primary mb-2"><i class="bi {{ icon }}"></i></div>
+        <span class="badge bg-secondary step-badge mb-1">Step {{ num }}</span>
+        <h5 class="card-title">{{ label }}</h5>
+        <p class="card-text text-muted small">{{ desc }}</p>
+        <a href="{{ url_for(endpoint) }}" class="btn btn-outline-primary btn-sm">Go →</a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Recent shipments -->
+<h4>Recent Shipments</h4>
+{% if recent %}
+<div class="table-responsive">
+  <table class="table table-striped table-hover align-middle">
+    <thead>
+      <tr>
+        <th>BOL #</th>
+        <th>SO</th>
+        <th>Carrier</th>
+        <th>Cost</th>
+        <th>Confirmation</th>
+        <th>Documents</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in recent %}
+      <tr>
+        <td><code>{{ r.bol_number }}</code></td>
+        <td>{{ r.so or '—' }}</td>
+        <td>{{ r.carrier or '—' }}</td>
+        <td>{% if r.cost %}${{ "%.2f"|format(r.cost|float) }}{% else %}—{% endif %}</td>
+        <td>{{ r.confirmation or '—' }}</td>
+        <td>
+          <a href="{{ url_for('download_file', filename='BOL_' ~ r.bol_number ~ '.pdf') }}" class="btn btn-sm btn-outline-secondary" target="_blank"><i class="bi bi-file-pdf"></i> BOL</a>
+          <a href="{{ url_for('download_file', filename='label_' ~ r.bol_number ~ '.pdf') }}" class="btn btn-sm btn-outline-secondary" target="_blank"><i class="bi bi-tag"></i> Label</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="alert alert-info">No shipments yet. <a href="{{ url_for('quote') }}">Create your first quote →</a></div>
+{% endif %}
+{% endblock %}
