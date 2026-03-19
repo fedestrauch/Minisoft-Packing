@@ -313,11 +313,11 @@ def fuzzy_match(norm_sku, source_df):
     """
     Two-phase matching:
       Phase 1 — substring scan: filter rows where the product-family token
-                appears in the short name, then score with token_sort_ratio
-                against the cleaned short name (strips spec noise like
-                ", w/csh DCZ...").  This correctly disambiguates items that
-                share a product family but differ by type (corner vs ottoman,
-                sidesofa vs 2-seater, etc.).
+                appears in the short name, then score with token_set_ratio
+                against the cleaned short name (strips ", w/..." spec noise).
+                Short names prevent shared color/spec tokens (e.g. "dgry")
+                from inflating all family members equally.  token_set handles
+                abbreviations like "sqr"↔"square" via subset scoring.
       Phase 2 — full fuzzy fallback: token_set_ratio across all short names.
 
     Returns (row_index, score) or (None, 0).
@@ -328,13 +328,17 @@ def fuzzy_match(norm_sku, source_df):
     short_norms = source_df["_short_norm"].tolist()
     family = _family_token(norm_sku)
 
-    # Phase 1: narrow to family candidates, score on clean short names
+    # Phase 1: narrow to family candidates, score with token_set_ratio on clean
+    # short names.  Cleaning (strip ", w/..." spec noise) removes the shared "dgry",
+    # "alu" tokens that were causing every family member to tie at 100 when using
+    # full source names.  token_set handles abbreviations like "sqr"↔"square" and
+    # "3seater"↔"3-seater" better than token_sort (subset scoring).
     if len(family) >= 3:
         family_idx = [i for i, n in enumerate(short_norms) if family in n]
         if family_idx:
             best_i, best_score = None, 0
             for i in family_idx:
-                s = fuzz.token_sort_ratio(norm_sku, short_norms[i])
+                s = fuzz.token_set_ratio(norm_sku, short_norms[i])
                 if s > best_score:
                     best_score, best_i = s, i
             if best_score >= SCORE_YELLOW:
