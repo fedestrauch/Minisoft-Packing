@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Step 3: Book Shipment — ShipPrimus{% endblock %}
+{% block title %}Step 3: Book Shipment - {{ provider_name }}{% endblock %}
 
 {% block content %}
-<h2 class="mb-3"><span class="badge bg-primary me-2">Step 3</span> Book Shipment</h2>
+<h2 class="mb-2"><span class="badge bg-primary me-2">Step 3</span> Book Shipment</h2>
+<p class="text-muted mb-4">Booking through <strong>{{ provider_name }}</strong> using the same shipment details captured in Step 1.</p>
 
 <form method="post">
   <div class="row g-4 mb-4">
-    <!-- Shipper -->
     <div class="col-md-6">
       <div class="card shadow-sm h-100">
         <div class="card-header"><i class="bi bi-building"></i> Shipper</div>
@@ -20,7 +20,6 @@
       </div>
     </div>
 
-    <!-- Consignee -->
     <div class="col-md-6">
       <div class="card shadow-sm h-100">
         <div class="card-header"><i class="bi bi-geo-alt"></i> Consignee</div>
@@ -34,7 +33,6 @@
     </div>
   </div>
 
-  <!-- Quote summary -->
   <div class="card shadow-sm mb-4">
     <div class="card-header"><i class="bi bi-receipt"></i> Quote Summary</div>
     <div class="card-body">
@@ -55,17 +53,15 @@
     </div>
   </div>
 
-  <!-- Accessorials (from quote step) -->
   {% set acc_labels = {
     "LFO":"Liftgate Pickup","LFD":"Liftgate Delivery",
     "RSO":"Residential Pickup","RSD":"Residential Delivery",
     "INO":"Inside Pickup","IND":"Inside Delivery",
-    "NTD":"Notification / Call Before Delivery"
+    "APD":"Appointment Delivery","NTD":"Notification / Call Before Delivery"
   } %}
   <div class="card shadow-sm mb-4">
     <div class="card-header"><i class="bi bi-plus-circle-dotted"></i> Accessorials</div>
     <div class="card-body">
-      {% set selected = session.get('accessorials', []) if session else [] %}
       <div class="row g-2">
         {% for code, label in acc_labels.items() %}
         <div class="col-6 col-md-3">
@@ -82,7 +78,6 @@
     </div>
   </div>
 
-  <!-- Pickup + notes -->
   <div class="card shadow-sm mb-4">
     <div class="card-header"><i class="bi bi-calendar3"></i> Pickup Details</div>
     <div class="card-body">
@@ -111,8 +106,8 @@
     <button type="submit" class="btn btn-success btn-lg">
       <i class="bi bi-bookmark-check"></i> Book Shipment
     </button>
-    <a href="{{ url_for('rates') }}" class="btn btn-outline-secondary btn-lg">
-      <i class="bi bi-arrow-left"></i> Back to Rates
+    <a href="{{ url_for('quote') }}" class="btn btn-outline-secondary btn-lg">
+      <i class="bi bi-arrow-left"></i> Back to Quote
     </a>
   </div>
 </form>

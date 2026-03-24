@@ -255,6 +255,12 @@ class PrimusClient:
     # Tracking
     # ------------------------------------------------------------------
 
+    def get_pro(self, bol_id: str) -> str:
+        """GET /applet/v1/book/{BOLId} — return carrier PRO# from vendor.PRO (assigned post-dispatch)."""
+        data = self._request("GET", f"/applet/v1/book/{bol_id}")
+        result = data.get("data", {}).get("results", {})
+        return str(result.get("vendor", {}).get("PRO", "") or "")
+
     def track(self, bol_number: str) -> dict:
         """GET /applet/v1/tracking — returns status timeline."""
         return self._request("GET", "/applet/v1/tracking", params={"bolNumber": bol_number})

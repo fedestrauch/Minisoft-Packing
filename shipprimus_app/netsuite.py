@@ -245,8 +245,9 @@ def patch_so(internal_id: str, fields: dict):
         raise RuntimeError(f"NS PATCH error {resp.status_code}: {resp.text}")
 
 
-def write_quote(internal_id: str, quote_number: str, quote_cost: float, carrier: str):
-    memo = f"Freight Quote: {quote_number} | Carrier: {carrier} | Amount: ${quote_cost:.2f}"
+def write_quote(internal_id: str, quote_number: str, quote_cost: float, carrier: str, broker: str = ""):
+    broker_part = f" | Broker: {broker}" if broker else ""
+    memo = f"Freight Quote: {quote_number} | Carrier: {carrier}{broker_part} | Amount: ${quote_cost:.2f}"
     patch_so(internal_id, {
         cfg.NS_FIELD_QUOTE_NUMBER: quote_number,
         cfg.NS_FIELD_QUOTE_COST: quote_cost,
@@ -255,10 +256,21 @@ def write_quote(internal_id: str, quote_number: str, quote_cost: float, carrier:
     })
 
 
-def write_bol(internal_id: str, bol_number: str):
-    patch_so(internal_id, {
-        cfg.NS_FIELD_BOL_NUMBER: bol_number,
-    })
+def write_bol(internal_id: str, bol_number: str, carrier: str = "", broker: str = "", pro_number: str = ""):
+    fields = {cfg.NS_FIELD_BOL_NUMBER: bol_number}
+    if pro_number:
+        fields["custbody_tracking_number"] = pro_number
+    if carrier or broker:
+        parts = []
+        if broker:
+            parts.append(f"Broker: {broker}")
+        if carrier:
+            parts.append(f"Carrier: {carrier}")
+        parts.append(f"BOL#: {bol_number}")
+        if pro_number:
+            parts.append(f"PRO#: {pro_number}")
+        fields["memo"] = " | ".join(parts)
+    patch_so(internal_id, fields)
 
 
 def write_dispatch(internal_id: str, confirmation: str):

@@ -1,10 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Track Shipment — ShipPrimus{% endblock %}
+{% block title %}Track Shipment - {{ provider_name }}{% endblock %}
 
 {% block content %}
-<h2 class="mb-3"><i class="bi bi-search"></i> Track Shipment</h2>
+<h2 class="mb-2"><i class="bi bi-search"></i> Track Shipment</h2>
+<p class="text-muted mb-4">Tracking lookup for <strong>{{ provider_name }}</strong>.</p>
 
 <form method="post" class="mb-4">
+  <input type="hidden" name="freight_provider" value="{{ provider }}">
   <div class="row g-2 align-items-end">
     <div class="col-auto">
       <label class="form-label">BOL / PRO Number</label>
@@ -48,10 +50,10 @@
       <tbody>
         {% for event in events %}
         <tr>
-          <td>{{ event.date or event.timestamp or event.eventDate or '—' }}</td>
-          <td>{{ event.location or event.city or '—' }}</td>
-          <td><span class="badge bg-secondary">{{ event.status or event.eventType or '—' }}</span></td>
-          <td>{{ event.description or event.eventDescription or '—' }}</td>
+          <td>{{ event.date or event.timestamp or event.eventDate or '-' }}</td>
+          <td>{{ event.location or event.city or '-' }}</td>
+          <td><span class="badge bg-secondary">{{ event.status or event.eventType or '-' }}</span></td>
+          <td>{{ event.description or event.eventDescription or '-' }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -60,7 +62,6 @@
     <div class="alert alert-warning">No tracking events found.</div>
     {% endif %}
 
-    <!-- Raw response toggle -->
     <details class="mt-3">
       <summary class="text-muted small">Raw API response</summary>
       <pre class="mt-2 p-2 bg-light rounded small">{{ result | tojson(indent=2) }}</pre>

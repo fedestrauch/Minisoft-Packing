@@ -1,18 +1,19 @@
 {% extends "base.html" %}
-{% block title %}Step 1: Quote — ShipPrimus{% endblock %}
+{% block title %}Step 1: Quote - Freight Portal{% endblock %}
 
 {% block content %}
-<h2 class="mb-3"><span class="badge bg-primary me-2">Step 1</span> Get Rates</h2>
+<h2 class="mb-2"><span class="badge bg-primary me-2">Step 1</span> Get Rates</h2>
+<p class="text-muted mb-4">Enter the shipment once and the portal will request rates from all configured providers in the same workflow.</p>
 
 {% if error %}
 <div class="alert alert-danger">{{ error }}</div>
 {% endif %}
 
-<!-- SO Lookup -->
 <div class="card mb-4 shadow-sm">
   <div class="card-header bg-dark text-white"><i class="bi bi-search"></i> NetSuite SO Lookup</div>
   <div class="card-body">
     <form method="post">
+      <input type="hidden" name="freight_provider" value="{{ provider }}">
       <div class="row g-2 align-items-end">
         <div class="col-auto">
           <label class="form-label">Sales Order #</label>
@@ -27,19 +28,21 @@
     </form>
     {% if so_data %}
     <div class="alert alert-success mt-3 mb-0">
-      <strong>{{ so_data.tranid }}</strong> — {{ so_data.customer }}<br>
+      <strong>{{ so_data.tranid }}</strong> - {{ so_data.customer }}<br>
       <small>{{ so_data.addressee }}, {{ so_data.address1 }}, {{ so_data.city }}, {{ so_data.state }} {{ so_data.zip }}</small>
     </div>
     {% endif %}
   </div>
 </div>
 
-<!-- Quote Form -->
 <form method="post" id="quoteForm">
   <input type="hidden" name="action" value="get_rates">
+  <div class="alert alert-light border shadow-sm mb-4">
+    <div class="fw-semibold mb-1"><i class="bi bi-columns-gap"></i> Multi-provider rating</div>
+    <div class="text-muted small">Submitting this quote will request rates from all configured providers together, then show the results side by side.</div>
+  </div>
 
   <div class="row g-4 mb-4">
-    <!-- Shipper (readonly) -->
     <div class="col-md-6">
       <div class="card shadow-sm h-100">
         <div class="card-header"><i class="bi bi-building"></i> Shipper (Origin)</div>
@@ -53,7 +56,6 @@
       </div>
     </div>
 
-    <!-- Consignee (editable) -->
     <div class="col-md-6">
       <div class="card shadow-sm h-100">
         <div class="card-header"><i class="bi bi-geo-alt"></i> Consignee (Destination)</div>
@@ -93,7 +95,6 @@
     </div>
   </div>
 
-  <!-- Freight Lines -->
   <div class="card shadow-sm mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
       <span><i class="bi bi-box-seam"></i> Freight Items</span>
@@ -141,7 +142,6 @@
     </div>
   </div>
 
-  <!-- Accessorials -->
   <div class="card shadow-sm mb-4">
     <div class="card-header"><i class="bi bi-plus-circle-dotted"></i> Accessorials</div>
     <div class="card-body">
@@ -153,6 +153,7 @@
           ("RSD", "Residential Delivery"),
           ("INO", "Inside Pickup"),
           ("IND", "Inside Delivery"),
+          ("APD", "Appointment Delivery"),
           ("NTD", "Notification / Call Before Delivery"),
         ] %}
         {% for code, label in acc_list %}
@@ -181,30 +182,87 @@
 
 {% block scripts %}
 <script>
+// Density → Freight Class per Tranzact/NMFC simplified table
+// Source: https://www.tranzact.com/resources/freight_class_calculator
+const CLASS_TABLE = [
+  [50, "50"], [35, "55"], [30, "60"], [22.5, "65"],
+  [15, "70"], [12, "85"], [10, "92.5"],
+  [8, "100"], [6, "125"], [4, "175"],
+  [2, "250"], [1, "300"], [0, "400"],
+];
+
+function densityToClass(density) {
+  for (const [minDensity, cls] of CLASS_TABLE) {
+    if (density >= minDensity) return cls;
+  }
+  return "500";
+}
+
+function calcClassForRow(row) {
+  const w = parseFloat(row.querySelector('[name="weight[]"]').value) || 0;
+  const l = parseFloat(row.querySelector('[name="length[]"]').value) || 0;
+  const wd = parseFloat(row.querySelector('[name="width[]"]').value) || 0;
+  const h = parseFloat(row.querySelector('[name="height[]"]').value) || 0;
+  if (w <= 0 || l <= 0 || wd <= 0 || h <= 0) return;
+  const cubicFt = (l * wd * h) / 1728;
+  const density = w / cubicFt;
+  const cls = densityToClass(density);
+  const sel = row.querySelector('[name="freight_class[]"]');
+  sel.value = cls;
+  let hint = row.querySelector('.density-hint');
+  if (!hint) {
+    hint = document.createElement('small');
+    hint.className = 'density-hint text-muted d-block';
+    sel.parentNode.appendChild(hint);
+  }
+  hint.textContent = density.toFixed(1) + ' pcf';
+}
+
+function attachRowListeners(row) {
+  ['weight[]', 'length[]', 'width[]', 'height[]'].forEach(name => {
+    const input = row.querySelector(`[name="${name}"]`);
+    if (input) input.addEventListener('input', () => calcClassForRow(row));
+  });
+}
+
+document.querySelectorAll('#freightTable tbody .freight-row').forEach(row => {
+  attachRowListeners(row);
+  calcClassForRow(row);
+});
+
+const classOptions = `
+  <option value="50">50</option><option value="55">55</option>
+  <option value="60">60</option><option value="65">65</option>
+  <option value="70" selected>70</option><option value="77.5">77.5</option>
+  <option value="85">85</option><option value="92.5">92.5</option>
+  <option value="100">100</option><option value="110">110</option>
+  <option value="125">125</option><option value="150">150</option>
+  <option value="175">175</option><option value="200">200</option>
+  <option value="250">250</option><option value="300">300</option>
+  <option value="400">400</option><option value="500">500</option>`;
+
 const rowTemplate = `<tr class="freight-row">
   <td><input name="qty[]" type="number" class="form-control form-control-sm" value="1" min="1"></td>
   <td><input name="description[]" class="form-control form-control-sm" placeholder="e.g. Sofa"></td>
-  <td><input name="weight[]" type="number" class="form-control form-control-sm" value="0" step="0.1"></td>
-  <td><input name="length[]" type="number" class="form-control form-control-sm" value="0" step="0.1"></td>
-  <td><input name="width[]" type="number" class="form-control form-control-sm" value="0" step="0.1"></td>
-  <td><input name="height[]" type="number" class="form-control form-control-sm" value="0" step="0.1"></td>
-  <td><select name="freight_class[]" class="form-select form-select-sm">
-    <option value="70" selected>70</option>
-    <option value="85">85</option><option value="92.5">92.5</option>
-    <option value="100">100</option><option value="125">125</option>
-    <option value="150">150</option><option value="175">175</option>
-    <option value="200">200</option><option value="250">250</option>
-  </select></td>
+  <td><input name="weight[]" type="number" class="form-control form-control-sm" value="" step="0.1" placeholder="0"></td>
+  <td><input name="length[]" type="number" class="form-control form-control-sm" value="" step="0.1" placeholder="0"></td>
+  <td><input name="width[]" type="number" class="form-control form-control-sm" value="" step="0.1" placeholder="0"></td>
+  <td><input name="height[]" type="number" class="form-control form-control-sm" value="" step="0.1" placeholder="0"></td>
+  <td><select name="freight_class[]" class="form-select form-select-sm">${classOptions}</select></td>
   <td><button type="button" class="btn btn-sm btn-outline-danger remove-row"><i class="bi bi-x"></i></button></td>
 </tr>`;
 
 document.getElementById('addRow').addEventListener('click', () => {
-  document.querySelector('#freightTable tbody').insertAdjacentHTML('beforeend', rowTemplate);
+  const tbody = document.querySelector('#freightTable tbody');
+  tbody.insertAdjacentHTML('beforeend', rowTemplate);
+  const newRow = tbody.querySelector('.freight-row:last-child');
+  attachRowListeners(newRow);
 });
 
 document.querySelector('#freightTable tbody').addEventListener('click', e => {
   const btn = e.target.closest('.remove-row');
   if (btn) btn.closest('tr').remove();
 });
+
 </script>
 {% endblock %}

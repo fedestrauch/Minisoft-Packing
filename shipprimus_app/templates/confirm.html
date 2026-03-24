@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Booked! — ShipPrimus{% endblock %}
+{% block title %}Booked! - {{ provider_name }}{% endblock %}
 
 {% block content %}
 <div class="text-center mb-4">
   <div class="display-1 text-success"><i class="bi bi-check-circle-fill"></i></div>
   <h2 class="mt-2">Shipment Booked!</h2>
-  <p class="text-muted">BOL created{% if dispatch_confirmation %} and pickup dispatched with carrier{% endif %}.</p>
+  <p class="text-muted">BOL created via {{ provider_name }}{% if dispatch_confirmation %} and pickup dispatched with carrier{% endif %}.</p>
 </div>
 
 <div class="card shadow mb-4">
@@ -32,7 +32,7 @@
       </div>
       <div class="col-md-3">
         <small class="text-muted d-block">Pickup Date</small>
-        <span class="fw-bold">{{ pickup_date or '—' }}</span>
+        <span class="fw-bold">{{ pickup_date or '-' }}</span>
       </div>
       {% if dispatch_bill_to %}
       <div class="col-md-3">
@@ -50,7 +50,6 @@
   </div>
 </div>
 
-<!-- ShipPrimus documents -->
 {% if primus_bol_url or primus_lbl_url %}
 <h5 class="mb-2"><i class="bi bi-file-earmark-pdf"></i> Documents</h5>
 <div class="d-flex flex-wrap gap-3 mb-4">
@@ -74,12 +73,28 @@
 {% else %}
 <div class="alert alert-warning">
   <i class="bi bi-exclamation-triangle"></i>
-  Document links not returned by ShipPrimus. Check the ShipPrimus portal for BOL # <strong>{{ bol_number }}</strong>.
+  {% if provider == "arcbest" %}
+  ABF did not return document links in the XML response. Use the ArcBest portal for BOL # <strong>{{ bol_number }}</strong>.
+  {% else %}
+  Document links not returned by GLB Solutions. Check the GLB Solutions portal for BOL # <strong>{{ bol_number }}</strong>.
+  {% endif %}
 </div>
 {% endif %}
 
-<div class="d-flex gap-2">
-  <a href="{{ url_for('quote') }}" class="btn btn-success">
+{% if queue_remaining %}
+<div class="alert alert-info mb-3">
+  <i class="bi bi-collection"></i>
+  <strong>{{ queue_remaining }} shipment(s) remaining in queue.</strong>
+</div>
+{% endif %}
+
+<div class="d-flex gap-2 flex-wrap">
+  {% if queue_remaining %}
+  <a href="{{ url_for('queue_next') }}" class="btn btn-success btn-lg">
+    <i class="bi bi-skip-forward-circle"></i> Next Shipment ({{ queue_remaining }} left)
+  </a>
+  {% endif %}
+  <a href="{{ url_for('quote') }}" class="btn btn-{% if queue_remaining %}outline-{% endif %}success">
     <i class="bi bi-plus-circle"></i> New Shipment
   </a>
   <a href="{{ url_for('track') }}" class="btn btn-outline-secondary">

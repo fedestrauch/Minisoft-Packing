@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — ShipPrimus IHM{% endblock %}
+{% block title %}Dashboard - Freight Portal{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -7,13 +7,12 @@
   <a href="{{ url_for('quote') }}" class="btn btn-primary"><i class="bi bi-plus-circle"></i> New Shipment</a>
 </div>
 
-<!-- Workflow steps -->
 <div class="row g-3 mb-4">
   {% set steps = [
-    ("1", "Quote", "bi-file-text", "quote", "Enter SO # and freight details to get carrier rates."),
-    ("2", "Rates", "bi-list-ol", "rates", "Compare carriers and select the best rate."),
-    ("3", "Book", "bi-calendar-check", "book", "Set pickup date and confirm booking."),
-    ("4", "Confirm", "bi-check-circle", "book", "Book shipment — generates BOL + label for download."),
+    ("1", "Quote", "bi-file-text", "quote", "Enter the SO once and compare GLB Solutions and ABF in the same flow."),
+    ("2", "Rates", "bi-list-ol", "quote", "Review returned options and pick the carrier and service you want."),
+    ("3", "Book", "bi-calendar-check", "book", "Set pickup date and complete the booking flow."),
+    ("4", "Track", "bi-search", "track", "Track booked shipments from the same portal."),
   ] %}
   {% for num, label, icon, endpoint, desc in steps %}
   <div class="col-sm-6 col-lg-3">
@@ -23,14 +22,42 @@
         <span class="badge bg-secondary step-badge mb-1">Step {{ num }}</span>
         <h5 class="card-title">{{ label }}</h5>
         <p class="card-text text-muted small">{{ desc }}</p>
-        <a href="{{ url_for(endpoint) }}" class="btn btn-outline-primary btn-sm">Go →</a>
+        <a href="{{ url_for(endpoint) }}" class="btn btn-outline-primary btn-sm">Open</a>
       </div>
     </div>
   </div>
   {% endfor %}
 </div>
 
-<!-- Recent shipments -->
+{% if queue %}
+<div class="alert alert-info d-flex align-items-center justify-content-between mb-4">
+  <div>
+    <i class="bi bi-collection"></i>
+    <strong>Queue active</strong> — {{ queue|length }} shipment(s) remaining:
+    <span class="font-monospace ms-1">{{ queue | join(', ') }}</span>
+  </div>
+  <a href="{{ url_for('queue_clear') }}" class="btn btn-sm btn-outline-danger ms-3">
+    <i class="bi bi-x-circle"></i> Clear Queue
+  </a>
+</div>
+{% endif %}
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><i class="bi bi-collection"></i> Batch Queue — Book Multiple Shipments</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('queue_start') }}">
+      <div class="mb-2">
+        <label class="form-label text-muted small">Enter SO numbers (one per line or comma-separated)</label>
+        <textarea name="so_numbers" class="form-control font-monospace" rows="3"
+                  placeholder="SO203570&#10;SO203571&#10;SO203572"></textarea>
+      </div>
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-play-circle"></i> Start Queue
+      </button>
+    </form>
+  </div>
+</div>
+
 <h4>Recent Shipments</h4>
 {% if recent %}
 <div class="table-responsive">
@@ -40,6 +67,7 @@
         <th>BOL #</th>
         <th>SO</th>
         <th>Carrier</th>
+        <th>Provider</th>
         <th>Cost</th>
         <th>Confirmation</th>
         <th>Documents</th>
@@ -48,14 +76,34 @@
     <tbody>
       {% for r in recent %}
       <tr>
-        <td><code>{{ r.bol_number }}</code></td>
-        <td>{{ r.so or '—' }}</td>
-        <td>{{ r.carrier or '—' }}</td>
-        <td>{% if r.cost %}${{ "%.2f"|format(r.cost|float) }}{% else %}—{% endif %}</td>
-        <td>{{ r.confirmation or '—' }}</td>
         <td>
+          {% if r.bol_number %}
+          <code>{{ r.bol_number }}</code>
+          {% else %}
+          <span class="text-muted">Test mode</span>
+          {% endif %}
+        </td>
+        <td>{{ r.so or '-' }}</td>
+        <td>{{ r.carrier or '-' }}</td>
+        <td>{{ 'ABF Freight' if r.provider == 'arcbest' else ('CEVA Logistics' if r.provider == 'ceva' else 'GLB Solutions') }}</td>
+        <td>{% if r.cost %}${{ "%.2f"|format(r.cost|float) }}{% else %}-{% endif %}</td>
+        <td>{{ r.confirmation or '-' }}</td>
+        <td>
+          {% if r.bol_url %}
+          <a href="{{ r.bol_url }}" class="btn btn-sm btn-outline-secondary" target="_blank"><i class="bi bi-file-pdf"></i> BOL</a>
+          {% elif r.provider == 'arcbest' and not r.bol_number %}
+          <span class="text-muted small">No BOL in ABF test mode</span>
+          {% else %}
           <a href="{{ url_for('download_file', filename='BOL_' ~ r.bol_number ~ '.pdf') }}" class="btn btn-sm btn-outline-secondary" target="_blank"><i class="bi bi-file-pdf"></i> BOL</a>
+          {% endif %}
+
+          {% if r.label_url %}
+          <a href="{{ r.label_url }}" class="btn btn-sm btn-outline-secondary" target="_blank"><i class="bi bi-tag"></i> Label</a>
+          {% elif r.provider == 'arcbest' %}
+          <span class="text-muted small ms-2">No label link</span>
+          {% else %}
           <a href="{{ url_for('download_file', filename='label_' ~ r.bol_number ~ '.pdf') }}" class="btn btn-sm btn-outline-secondary" target="_blank"><i class="bi bi-tag"></i> Label</a>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}
@@ -63,6 +111,6 @@
   </table>
 </div>
 {% else %}
-<div class="alert alert-info">No shipments yet. <a href="{{ url_for('quote') }}">Create your first quote →</a></div>
+<div class="alert alert-info">No shipments yet. <a href="{{ url_for('quote') }}">Create your first quote</a></div>
 {% endif %}
 {% endblock %}

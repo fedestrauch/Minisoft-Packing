@@ -3,15 +3,16 @@ Generate BOL PDF (letter) and 4×6 shipping label using ReportLab.
 Mirrors patterns from SO.py (Code128 barcode) and address.py (4×6 canvas).
 """
 import os
-from io import BytesIO
 from reportlab.lib.pagesizes import letter, inch
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from reportlab.graphics import renderPDF
 from reportlab.graphics.barcode import createBarcodeDrawing
+from reportlab.lib.utils import ImageReader
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
+ABF_LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "ABF.png")
 
 
 def _barcode_drawing(value: str, bar_width=0.30, bar_height=10):
@@ -141,6 +142,12 @@ def generate_label(
     bol_number: str,
     shipper: dict,
     consignee: dict,
+    pickup_date: str = "",
+    po_number: str = "",
+    so_number: str = "",
+    freight_items: list | None = None,
+    label_number: int = 1,
+    total_labels: int = 1,
 ) -> str:
     """
     Create 4×6 shipping label PDF. Returns local file path.
@@ -149,38 +156,80 @@ def generate_label(
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out_path = os.path.join(OUTPUT_DIR, f"label_{bol_number}.pdf")
 
+    freight_items = freight_items or []
+    total_weight = sum((float(item.get("weight", 0) or 0) * int(item.get("qty", 1) or 1)) for item in freight_items)
+    total_pieces = sum(int(item.get("qty", 0) or 0) for item in freight_items) or 1
+
     W, H = 4 * inch, 6 * inch
     c = canvas.Canvas(out_path, pagesize=(W, H))
     margin = 0.3 * inch
 
-    # FROM
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(margin, H - 0.4 * inch, "FROM:")
-    c.setFont("Helvetica", 10)
-    _draw_address_block(c, shipper, margin, H - 0.6 * inch, line_height=13)
+    # Header / carrier block
+    c.setFillColor(colors.white)
+    c.rect(margin, H - 1.18 * inch, W - (2 * margin), 0.9 * inch, fill=1, stroke=0)
+    if os.path.exists(ABF_LOGO_PATH):
+        logo = ImageReader(ABF_LOGO_PATH)
+        c.drawImage(
+            logo,
+            margin,
+            H - 1.05 * inch,
+            width=1.65 * inch,
+            height=0.72 * inch,
+            preserveAspectRatio=True,
+            mask="auto",
+        )
+    else:
+        c.setFont("Helvetica-Bold", 18)
+        c.drawString(margin + 0.12 * inch, H - 0.68 * inch, "ABF")
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(margin + 0.72 * inch, H - 0.60 * inch, "ABF Freight")
+    c.setFillColor(colors.black)
+    c.setFont("Helvetica", 8)
+    c.drawString(margin, H - 1.10 * inch, "arcb.com/abf")
+    c.drawString(margin, H - 1.24 * inch, "1-800-610-5544")
+    c.setFont("Helvetica-Bold", 10)
+    c.drawRightString(W - margin - 0.08 * inch, H - 0.68 * inch, f"{label_number}/{total_labels}")
 
-    # Divider
-    c.line(margin, H - 1.6 * inch, W - margin, H - 1.6 * inch)
+    # Shipment summary
+    summary_top = H - 1.48 * inch
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(margin, summary_top, f"PICKUP DATE: {pickup_date or '-'}")
+    c.drawRightString(W - margin, summary_top, f"PO #: {po_number or '-'}")
+    c.drawString(margin, summary_top - 0.16 * inch, f"PIECES: {total_pieces}")
+    c.drawRightString(W - margin, summary_top - 0.16 * inch, f"WEIGHT: {total_weight:.0f} LB")
+    c.drawString(margin, summary_top - 0.32 * inch, f"SO #: {so_number or '-'}")
+
+    # FROM
+    from_top = H - 1.98 * inch
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin, from_top, "SHIP FROM")
+    c.setFont("Helvetica", 9)
+    _draw_address_block(c, shipper, margin, from_top - 0.18 * inch, line_height=11, extra_lines=[
+        "Johanna Sifontes",
+        "305-620-6500",
+    ])
+
+    c.line(margin, H - 2.88 * inch, W - margin, H - 2.88 * inch)
 
     # TO
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(margin, H - 1.9 * inch, "TO:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(margin, H - 3.14 * inch, "SHIP TO")
     c.setFont("Helvetica", 12)
-    _draw_address_block(c, consignee, margin, H - 2.15 * inch, line_height=16)
+    _draw_address_block(c, consignee, margin, H - 3.42 * inch, line_height=15)
 
-    # BOL barcode bottom
-    bc = _barcode_drawing(bol_number, bar_width=0.35, bar_height=14)
+    # BOL / tracking barcode bottom
+    bc = _barcode_drawing(bol_number, bar_width=0.35, bar_height=13)
     bc_x = (W - bc.width) / 2
-    renderPDF.draw(bc, c, bc_x, 0.6 * inch)
-    c.setFont("Helvetica", 9)
-    c.drawCentredString(W / 2, 0.45 * inch, f"BOL: {bol_number}")
+    renderPDF.draw(bc, c, bc_x, 0.70 * inch)
+    c.setFont("Helvetica-Bold", 9)
+    c.drawCentredString(W / 2, 0.52 * inch, f"BOL / TRACKING: {bol_number}")
 
     c.showPage()
     c.save()
     return out_path
 
 
-def _draw_address_block(c, addr: dict, x: float, y: float, line_height: int = 11):
+def _draw_address_block(c, addr: dict, x: float, y: float, line_height: int = 11, extra_lines: list | None = None):
     lines = []
     company = addr.get("company") or addr.get("addressee") or addr.get("name") or ""
     if company:
@@ -196,6 +245,9 @@ def _draw_address_block(c, addr: dict, x: float, y: float, line_height: int = 11
     country = addr.get("country", "")
     if country and country.upper() not in ("US", "USA"):
         lines.append(country)
+    for extra in extra_lines or []:
+        if extra:
+            lines.append(extra)
 
     for line in lines:
         c.drawString(x, y, line)
